@@ -20,5 +20,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Local Claude Code settings
+# Local Claude Code settings (only the root CLAUDE.md is committed)
+.claude/settings.json
 .claude/settings.local.json
