@@ -28,6 +28,17 @@ redis.on('error', (err: Error) => {
   logger.warn('redis error', { reason: err.message });
 });
 
+// Connect before listening: never accept traffic while a dependency is unreachable.
+// Without this, the first requests after a restart would fail rate-limit checks.
+try {
+  await Promise.all([prisma.$connect(), redis.connect()]);
+} catch (err) {
+  logger.error('startup failed: dependency unavailable', {
+    reason: err instanceof Error ? err.message : 'unknown',
+  });
+  process.exit(1);
+}
+
 const app = createApp({ config, prisma, redis, logger });
 const server = app.listen(config.IDP_PORT, () => {
   logger.info('idp listening', { port: config.IDP_PORT, env: config.NODE_ENV });

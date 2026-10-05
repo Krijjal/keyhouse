@@ -19,8 +19,11 @@ export function createTestLogger(): Logger & { lines: { level: string; msg: stri
   return { lines, debug: rec('debug'), info: rec('info'), warn: rec('warn'), error: rec('error') };
 }
 
-/** Builds deps pointed at the TEST database and TEST Redis DB. Overrides allow fault injection. */
-export function createTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
+/**
+ * Builds deps pointed at the TEST database and TEST Redis DB, connected the same way
+ * server.ts connects them. Overrides allow fault injection and are used as given.
+ */
+export async function createTestDeps(overrides: Partial<AppDeps> = {}): Promise<AppDeps> {
   const databaseUrl = required('TEST_DATABASE_URL');
   const redisUrl = required('TEST_REDIS_URL');
   const config = loadConfig({
@@ -29,13 +32,11 @@ export function createTestDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     DATABASE_URL: databaseUrl,
     REDIS_URL: redisUrl,
   });
-  return {
-    config,
-    prisma: createPrismaClient(databaseUrl),
-    redis: createRedis(redisUrl),
-    logger: createTestLogger(),
-    ...overrides,
-  };
+  const prisma = overrides.prisma ?? createPrismaClient(databaseUrl);
+  const redis = overrides.redis ?? createRedis(redisUrl);
+  if (!overrides.prisma) await prisma.$connect();
+  if (!overrides.redis) await redis.connect();
+  return { config, prisma, redis, logger: createTestLogger(), ...overrides };
 }
 
 export { createApp };
