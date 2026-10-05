@@ -11,7 +11,9 @@ export default defineConfig({
   migrations: {
     path: 'prisma/migrations',
   },
+  // The Prisma CLI (migrate, studio) connects as the schema OWNER.
+  // The running app uses DATABASE_URL (least-privilege role) via createPrismaClient().
   datasource: {
-    url: env('DATABASE_URL'),
+    url: env('MIGRATION_DATABASE_URL'),
   },
 });
