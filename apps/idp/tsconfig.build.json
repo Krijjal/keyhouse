@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    // Builds must resolve workspace packages to their compiled dist, not TS source.
+    "customConditions": []
+  },
+  "include": ["src"]
+}
