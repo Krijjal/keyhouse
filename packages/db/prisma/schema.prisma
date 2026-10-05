@@ -1,0 +1,98 @@
+// KeyHouse identity provider schema.
+// Rule 2: no raw token, secret or code is ever stored. Only SHA-256 hashes (hex, 64 chars).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+  previewFeatures     = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  // citext = case-insensitive text. Used for email so the UNIQUE constraint itself
+  // rejects "Bob@x.com" when "bob@x.com" exists, even if app code forgets to normalize.
+  extensions = [citext]
+}
+
+model User {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  email           String    @unique @db.Citext
+  // argon2id PHC string (includes algorithm, params and salt).
+  passwordHash    String    @map("password_hash")
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // Note: no failed-login counter / locked_until here. Lockout state on the user row
+  // would only exist for real accounts and leak which emails are registered.
+  // Lockout lives in Redis, keyed by normalized email, for existing and unknown emails alike.
+
+  sessions    Session[]
+  emailTokens EmailToken[]
+
+  @@map("users")
+}
+
+model Session {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  // SHA-256 of the cookie value. The raw token only ever exists in the user's cookie.
+  tokenHash         String    @unique @map("token_hash") @db.Char(64)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  // Sliding idle timeout (30 min) is measured from here.
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  // Hard cap (7 days) regardless of activity.
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  ip                String?
+  userAgent         String?   @map("user_agent")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+enum EmailTokenPurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+
+  @@map("email_token_purpose")
+}
+
+model EmailToken {
+  id         String            @id @default(uuid(7)) @db.Uuid
+  userId     String            @map("user_id") @db.Uuid
+  tokenHash  String            @unique @map("token_hash") @db.Char(64)
+  purpose    EmailTokenPurpose
+  expiresAt  DateTime          @map("expires_at") @db.Timestamptz(3)
+  // Single use: set atomically when consumed; a non-null value means "already used".
+  consumedAt DateTime?         @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("email_tokens")
+}
+
+// Rule 8: append-only. UPDATE/DELETE/TRUNCATE are rejected by a DB trigger (see migrations).
+model AuditEvent {
+  id        BigInt   @id @default(autoincrement())
+  // e.g. "user.registered", "login.failed". Kept as text so new event types need no migration.
+  type      String   @db.VarChar(64)
+  // Deliberately NOT a foreign key: audit rows must outlive the users they describe,
+  // and an FK action (SET NULL / CASCADE) would need to modify append-only rows.
+  userId    String?  @map("user_id") @db.Uuid
+  ip        String?
+  userAgent String?  @map("user_agent")
+  // Never put passwords, tokens, cookies or secrets in here (rule 7).
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("audit_events")
+}
