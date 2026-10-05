@@ -17,8 +17,8 @@
     "typecheck": "tsc --noEmit",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
-    "migrate:test": "node --env-file=../../.env scripts/migrate-test.mjs",
-    "studio": "prisma studio"
+    "studio": "prisma studio",
+    "test": "vitest run"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "26.6.4",
-    "prisma": "7.10.0"
+    "prisma": "7.10.0",
+    "vitest": "5.0.3"
   }
 }
