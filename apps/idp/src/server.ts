@@ -4,7 +4,10 @@ import { createPrismaClient } from '@keyhouse/db';
 import { createApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { logger } from './logger.js';
+import { createSmtpMailer } from './mail/mailer.js';
 import { createRedis } from './redis.js';
+import { getDummyHash } from './security/passwords.js';
+import { createPwnedChecker } from './security/pwned.js';
 
 // Local development convenience: load the repo-root .env if present.
 // Variables already set in the real environment take precedence.
@@ -39,7 +42,17 @@ try {
   process.exit(1);
 }
 
-const app = createApp({ config, prisma, redis, logger });
+const mailer = createSmtpMailer({
+  host: config.SMTP_HOST,
+  port: config.SMTP_PORT,
+  from: config.MAIL_FROM,
+});
+const pwned = createPwnedChecker();
+
+// Warm the dummy hash so the first unknown-email login isn't slower than the rest.
+await getDummyHash();
+
+const app = createApp({ config, prisma, redis, logger, mailer, pwned });
 const server = app.listen(config.IDP_PORT, () => {
   logger.info('idp listening', { port: config.IDP_PORT, env: config.NODE_ENV });
 });
