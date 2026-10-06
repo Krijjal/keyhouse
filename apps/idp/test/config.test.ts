@@ -1,7 +1,9 @@
+import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '../src/config.js';
 
-const SECRET = 'S3cr3t-Value-That-Must-Not-Leak';
+// Generated at runtime so no credential-shaped literal lives in the source (secret scanners).
+const SECRET = randomBytes(16).toString('hex');
 
 const validEnv = {
   NODE_ENV: 'development',

@@ -54,6 +54,22 @@ pnpm typecheck && pnpm lint && pnpm format:check
 - Stop at the end of each phase. Don't start the next phase until the owner says so.
 - Ask when something is ambiguous; never guess on security decisions.
 
+## Security decisions (made by the owner, 2026-10-06)
+
+- Login throttling, all keyed by a hash of the normalized email, identical for unknown emails:
+  - per IP across all emails: 30 failures / 15 min → 429 (IPv6 grouped by /64)
+  - per email + IP: 5 failures → hard lock 15 min for that pair (correct password still blocked)
+  - per email across all IPs: 5 free failures, then minimum wait 1 s doubling to a 30 s cap,
+    returned as 429 + Retry-After (never a server-side sleep); no hard lock
+  - blocked attempts are rejected before any password check; success resets the email counters
+- Registration of an existing email: same 202 response. Unverified account → "choose your
+  password" link (RESET_PASSWORD purpose); verified account → "you already have an account".
+  A registration request never overwrites a password (prevents pre-account hijacking).
+- Pwned Passwords API down or slower than 2 s → fail closed (503, "try again shortly").
+- Email links carry the token in the URL fragment (`#token=`), never the query string.
+- Mail is sent with nodemailer (SMTP transport only).
+- Test fixtures never contain credential-shaped literals; generate fake secrets at runtime.
+
 ## Database roles
 
 - `keyhouse_owner` owns the schema and runs migrations (`MIGRATION_DATABASE_URL`).

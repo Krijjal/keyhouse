@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AppDeps } from '../src/app.js';
@@ -26,14 +27,17 @@ describe('GET /health', () => {
 
   it('returns 503 without leaking error details when Redis is down', async () => {
     // Never connected (nothing listens on port 1): with no offline queue, PING fails at once.
-    const brokenRedis = createRedis('redis://:wrong-password-xyz@127.0.0.1:1/0');
+    // Random at runtime so no credential-shaped literal lives in the source (secret scanners).
+    const fakePassword = randomBytes(8).toString('hex');
+    const brokenRedis = createRedis(`redis://:${fakePassword}@127.0.0.1:1/0`);
     brokenRedis.on('error', () => undefined);
     const res = await request(createApp(await deps({ redis: brokenRedis }))).get('/health');
 
     expect(res.status).toBe(503);
     // Exact body: only ok/error per dependency, nothing else.
     expect(res.body).toEqual({ status: 'error', checks: { postgres: 'ok', redis: 'error' } });
-    expect(res.text).not.toMatch(/ECONNREFUSED|127\.0\.0\.1|wrong-password/);
+    expect(res.text).not.toMatch(/ECONNREFUSED|127\.0\.0\.1/);
+    expect(res.text).not.toContain(fakePassword);
   });
 });
 
