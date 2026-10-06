@@ -43,6 +43,10 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     restart: unless-stopped
+    environment:
+      # Skip reverse-DNS of the client IP. Through Docker Desktop that lookup times out and
+      # delays every SMTP greeting by ~8 s.
+      MP_SMTP_DISABLE_RDNS: 'true'
     ports:
       - '127.0.0.1:1025:1025' # SMTP
       - '127.0.0.1:8025:8025' # Web UI: http://localhost:8025
