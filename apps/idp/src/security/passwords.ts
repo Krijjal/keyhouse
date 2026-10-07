@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/no-meaningless-void-operator --
-   Only needed while verifyPassword is a stub. Delete this comment when you implement it. */
 import argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
 
@@ -64,6 +62,16 @@ export async function verifyPassword(
   storedHash: string | null,
   password: string,
 ): Promise<boolean> {
-  void [storedHash, password]; // delete this line when you implement
-  throw new Error('Not implemented: verifyPassword');
+  const isRealUser = storedHash !== null;
+  // Unknown user: check against the dummy hash so the response takes the same time.
+  const hashToCheck = isRealUser ? storedHash : await getDummyHash();
+
+  try {
+    const matches = await argon2.verify(hashToCheck, normalizePassword(password));
+    // Only a real user with a matching password succeeds.
+    return isRealUser && matches;
+  } catch {
+    // Corrupted or unreadable hash: fail closed instead of crashing.
+    return false;
+  }
 }
