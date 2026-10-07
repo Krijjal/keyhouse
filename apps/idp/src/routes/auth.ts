@@ -12,9 +12,17 @@ import {
   finishSetupMessage,
   verifyEmailMessage,
 } from '../mail/templates.js';
-import { hashPassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '../security/passwords.js';
+import { getAuth, requireAuth } from '../http/auth-middleware.js';
+import { readCookie, SESSION_COOKIE, setSessionCookie } from '../http/cookies.js';
+import {
+  hashPassword,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  verifyPassword,
+} from '../security/passwords.js';
 import { PwnedCheckUnavailable } from '../security/pwned.js';
-import { consumeEmailToken, issueEmailToken } from '../security/tokens.js';
+import { createSession, revokeSession, validateSession } from '../security/sessions.js';
+import { consumeEmailToken, hashToken, issueEmailToken } from '../security/tokens.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 export const VERIFY_TOKEN_TTL_MS = 24 * HOUR_MS;
@@ -30,6 +38,11 @@ export const passwordSchema = z
 
 const registerBody = z.object({ email: emailSchema, password: passwordSchema });
 const verifyBody = z.object({ token: z.string().max(100) });
+// No minimum length at login: the policy applies when a password is set, not when it's checked.
+const loginBody = z.object({
+  email: emailSchema,
+  password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+});
 
 /** The one response for every accepted registration, new email or not (rule 5). */
 export const REGISTER_ACCEPTED = {
@@ -121,6 +134,61 @@ export function authRouter(deps: AppDeps): Router {
     });
     await recordAudit(db, 'email.verified', meta, consumed.userId);
     res.status(200).json({ status: 'verified' });
+  });
+
+  router.post('/auth/login', async (req, res) => {
+    const meta = requestMeta(req);
+    const { email, password } = parseBody(loginBody, req);
+    // TODO(1.6): throttling checks go here, before any password work.
+
+    const user = await db.user.findUnique({
+      where: { email },
+      select: { id: true, passwordHash: true, emailVerifiedAt: true },
+    });
+    // Same argon2 cost whether or not the user exists (rule 5).
+    const ok = await verifyPassword(user?.passwordHash ?? null, password);
+
+    if (!user || !ok) {
+      // Unknown emails are recorded by hash only: enough to spot a spraying pattern
+      // without storing every address someone typed.
+      await recordAudit(db, 'login.failed', meta, user?.id ?? null, {
+        emailHash: hashToken(email),
+      });
+      throw new HttpError(401, 'invalid_credentials');
+    }
+
+    if (!user.emailVerifiedAt) {
+      // Safe to reveal: only someone who knows the password gets here.
+      await recordAudit(db, 'login.unverified', meta, user.id);
+      throw new HttpError(403, 'email_not_verified');
+    }
+
+    // Session fixation defense: whatever session cookie the browser arrived with is
+    // revoked; the user always gets a brand-new token.
+    const previousToken = readCookie(req, SESSION_COOKIE);
+    if (previousToken) {
+      const previous = await validateSession(db, previousToken);
+      if (previous) {
+        await revokeSession(db, previous.sessionId);
+        await recordAudit(db, 'session.rotated', meta, previous.userId, {
+          revokedSessionId: previous.sessionId,
+        });
+      }
+    }
+
+    const session = await createSession(db, user.id, meta);
+    setSessionCookie(res, session.token);
+    await recordAudit(db, 'login.succeeded', meta, user.id, { sessionId: session.sessionId });
+    res.status(200).json({ status: 'logged_in' });
+  });
+
+  router.get('/auth/me', requireAuth(db), async (_req, res) => {
+    const { userId } = getAuth(res);
+    const user = await db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, email: true, emailVerifiedAt: true, createdAt: true },
+    });
+    res.set('Cache-Control', 'no-store').json({ user });
   });
 
   return router;
