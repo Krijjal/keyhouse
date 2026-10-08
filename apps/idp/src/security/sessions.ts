@@ -123,3 +123,60 @@ export async function revokeSession(
     data: { revokedAt: now },
   });
 }
+
+/** Revokes every session of a user ("sign out everywhere"). Returns how many were live. */
+export async function revokeAllSessions(
+  db: PrismaClient,
+  userId: string,
+  now: Date = new Date(),
+): Promise<number> {
+  const result = await db.session.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: now },
+  });
+  return result.count;
+}
+
+/**
+ * Revokes one session, but only if it belongs to `userId`. Ownership is part of the
+ * WHERE clause, so another user's session id simply matches nothing (IDOR defense).
+ * Returns false for unknown, already revoked and other users' sessions alike.
+ */
+export async function revokeOwnSession(
+  db: PrismaClient,
+  userId: string,
+  sessionId: string,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const result = await db.session.updateMany({
+    where: { id: sessionId, userId, revokedAt: null },
+    data: { revokedAt: now },
+  });
+  return result.count === 1;
+}
+
+export interface SessionSummary {
+  id: string;
+  createdAt: Date;
+  lastSeenAt: Date;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+/** The user's live sessions, most recently used first. Never selects the token hash. */
+export async function listActiveSessions(
+  db: PrismaClient,
+  userId: string,
+  now: Date = new Date(),
+): Promise<SessionSummary[]> {
+  return db.session.findMany({
+    where: {
+      userId,
+      revokedAt: null,
+      absoluteExpiresAt: { gt: now },
+      lastSeenAt: { gt: new Date(now.getTime() - SESSION_IDLE_TIMEOUT_MS) },
+    },
+    select: { id: true, createdAt: true, lastSeenAt: true, ip: true, userAgent: true },
+    orderBy: { lastSeenAt: 'desc' },
+  });
+}

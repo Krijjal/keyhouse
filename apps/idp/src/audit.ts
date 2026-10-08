@@ -12,7 +12,11 @@ export type AuditEventType =
   | 'login.succeeded'
   | 'login.failed'
   | 'login.unverified'
-  | 'session.rotated';
+  | 'session.rotated'
+  | 'logout'
+  | 'logout.all_sessions'
+  | 'session.revoked'
+  | 'session.revoke_denied';
 
 /**
  * Rule 8: writes one row to the append-only audit_events table.

@@ -1,6 +1,8 @@
 import { createPrismaClient } from '@keyhouse/db';
+import type request from 'supertest';
 import { createApp, type AppDeps } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { SESSION_COOKIE } from '../src/http/cookies.js';
 import type { Logger } from '../src/logger.js';
 import type { Mailer, MailMessage } from '../src/mail/mailer.js';
 import { createRedis } from '../src/redis.js';
@@ -66,6 +68,19 @@ export function tokenFromEmail(message: MailMessage): string {
   const match = /#token=([A-Za-z0-9_-]+)/.exec(message.text);
   if (!match?.[1]) throw new Error('no #token= link in email');
   return match[1];
+}
+
+/** The raw Set-Cookie header for the session, and "name=value" to send back. */
+export function sessionCookie(res: request.Response): {
+  header: string;
+  pair: string;
+  token: string;
+} {
+  const raw = res.headers['set-cookie'] as unknown as string[] | undefined;
+  const header = raw?.find((c) => c.startsWith(`${SESSION_COOKIE}=`));
+  if (!header) throw new Error('no session cookie set');
+  const pair = header.split(';')[0] ?? '';
+  return { header, pair, token: pair.slice(SESSION_COOKIE.length + 1) };
 }
 
 export type TestDeps = AppDeps & {

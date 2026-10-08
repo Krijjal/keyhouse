@@ -13,7 +13,12 @@ import {
   verifyEmailMessage,
 } from '../mail/templates.js';
 import { getAuth, requireAuth } from '../http/auth-middleware.js';
-import { readCookie, SESSION_COOKIE, setSessionCookie } from '../http/cookies.js';
+import {
+  clearSessionCookie,
+  readCookie,
+  SESSION_COOKIE,
+  setSessionCookie,
+} from '../http/cookies.js';
 import {
   hashPassword,
   PASSWORD_MAX_LENGTH,
@@ -21,7 +26,14 @@ import {
   verifyPassword,
 } from '../security/passwords.js';
 import { PwnedCheckUnavailable } from '../security/pwned.js';
-import { createSession, revokeSession, validateSession } from '../security/sessions.js';
+import {
+  createSession,
+  listActiveSessions,
+  revokeAllSessions,
+  revokeOwnSession,
+  revokeSession,
+  validateSession,
+} from '../security/sessions.js';
 import { consumeEmailToken, hashToken, issueEmailToken } from '../security/tokens.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -43,6 +55,7 @@ const loginBody = z.object({
   email: emailSchema,
   password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
 });
+const sessionIdParam = z.uuid();
 
 /** The one response for every accepted registration, new email or not (rule 5). */
 export const REGISTER_ACCEPTED = {
@@ -189,6 +202,56 @@ export function authRouter(deps: AppDeps): Router {
       select: { id: true, email: true, emailVerifiedAt: true, createdAt: true },
     });
     res.set('Cache-Control', 'no-store').json({ user });
+  });
+
+  // Not behind requireAuth: logging out must always work and always clear the cookie,
+  // even when the session is already dead. Revoking server-side is what matters: a
+  // stolen copy of the cookie stops working too, not just the browser's own copy.
+  router.post('/auth/logout', async (req, res) => {
+    const meta = requestMeta(req);
+    const token = readCookie(req, SESSION_COOKIE);
+    const session = token ? await validateSession(db, token) : null;
+    if (session) {
+      await revokeSession(db, session.sessionId);
+      await recordAudit(db, 'logout', meta, session.userId, { sessionId: session.sessionId });
+    }
+    clearSessionCookie(res);
+    res.status(204).end();
+  });
+
+  router.post('/auth/logout-all', requireAuth(db), async (req, res) => {
+    const meta = requestMeta(req);
+    const { userId, sessionId } = getAuth(res);
+    const revokedCount = await revokeAllSessions(db, userId);
+    await recordAudit(db, 'logout.all_sessions', meta, userId, { sessionId, revokedCount });
+    clearSessionCookie(res);
+    res.status(204).end();
+  });
+
+  router.get('/auth/sessions', requireAuth(db), async (_req, res) => {
+    const { userId, sessionId } = getAuth(res);
+    const sessions = await listActiveSessions(db, userId);
+    res.set('Cache-Control', 'no-store').json({
+      sessions: sessions.map((s) => ({ ...s, current: s.id === sessionId })),
+    });
+  });
+
+  router.delete('/auth/sessions/:id', requireAuth(db), async (req, res) => {
+    const meta = requestMeta(req);
+    const { userId, sessionId: currentId } = getAuth(res);
+    const parsed = sessionIdParam.safeParse(req.params.id);
+    const targetId = parsed.success ? parsed.data : null;
+
+    // Malformed, unknown, already revoked and someone else's session all get the same
+    // 404, so the endpoint can't be used to probe which session ids exist (IDOR).
+    if (!targetId || !(await revokeOwnSession(db, userId, targetId))) {
+      await recordAudit(db, 'session.revoke_denied', meta, userId, { targetId });
+      throw new HttpError(404, 'session_not_found');
+    }
+
+    await recordAudit(db, 'session.revoked', meta, userId, { revokedSessionId: targetId });
+    if (targetId === currentId) clearSessionCookie(res);
+    res.status(204).end();
   });
 
   return router;

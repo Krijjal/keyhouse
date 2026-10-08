@@ -4,7 +4,7 @@ import { SESSION_COOKIE } from '../src/http/cookies.js';
 import { hashPassword } from '../src/security/passwords.js';
 import { hashToken } from '../src/security/tokens.js';
 import { ownerDb, resetDb, uniqueEmail } from './db.js';
-import { closeDeps, createApp, createTestDeps, type TestDeps } from './helpers.js';
+import { closeDeps, createApp, createTestDeps, sessionCookie, type TestDeps } from './helpers.js';
 
 // These depend on learning item b (sessions) and pass once it is implemented.
 
@@ -37,15 +37,6 @@ async function makeUser(verified = true): Promise<{ id: string; email: string }>
 function login(body: object, cookie?: string) {
   const req = request(app).post('/auth/login').send(body);
   return cookie ? req.set('Cookie', cookie) : req;
-}
-
-/** The raw Set-Cookie header for the session, and "name=value" to send back. */
-function sessionCookie(res: request.Response): { header: string; pair: string; token: string } {
-  const raw = res.headers['set-cookie'] as unknown as string[] | undefined;
-  const header = raw?.find((c) => c.startsWith(`${SESSION_COOKIE}=`));
-  if (!header) throw new Error('no session cookie set');
-  const pair = header.split(';')[0] ?? '';
-  return { header, pair, token: pair.slice(SESSION_COOKIE.length + 1) };
 }
 
 describe('POST /auth/login', () => {
