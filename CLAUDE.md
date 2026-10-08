@@ -62,6 +62,9 @@ pnpm typecheck && pnpm lint && pnpm format:check
   - per email across all IPs: 5 free failures, then minimum wait 1 s doubling to a 30 s cap,
     returned as 429 + Retry-After (never a server-side sleep); no hard lock
   - blocked attempts are rejected before any password check; success resets the email counters
+- Forgot-password throttling (decided 2026-10-08): 3 requests per email per hour, 20 per IP
+  per hour (IPv6 /64). Over the limit: the same 202 response, but no email is sent (a 429
+  would reveal that the address was recently targeted). Prevents mail-bombing a victim.
 - Registration of an existing email: same 202 response. Unverified account → "choose your
   password" link (RESET_PASSWORD purpose); verified account → "you already have an account".
   A registration request never overwrites a password (prevents pre-account hijacking).
