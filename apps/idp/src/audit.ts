@@ -16,7 +16,12 @@ export type AuditEventType =
   | 'logout'
   | 'logout.all_sessions'
   | 'session.revoked'
-  | 'session.revoke_denied';
+  | 'session.revoke_denied'
+  | 'password_reset.requested'
+  | 'password_reset.completed'
+  | 'password_reset.failed'
+  | 'password_reset.rejected_breached_password'
+  | 'password_reset.password_check_unavailable';
 
 /**
  * Rule 8: writes one row to the append-only audit_events table.

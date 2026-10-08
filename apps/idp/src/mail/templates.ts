@@ -36,6 +36,38 @@ export function finishSetupMessage(to: string, webOrigin: string, token: string)
   };
 }
 
+export function resetPasswordMessage(to: string, webOrigin: string, token: string): MailMessage {
+  return {
+    to,
+    subject: 'Reset your KeyHouse password',
+    text: [
+      'Someone asked to reset the password of the KeyHouse account for this email.',
+      '',
+      'If it was you, choose a new password here:',
+      '',
+      `${webOrigin}/reset-password#token=${token}`,
+      '',
+      'The link works once and expires in 30 minutes. Using it signs you out everywhere.',
+      "If it wasn't you, ignore this email. Your password has not changed.",
+    ].join('\n'),
+  };
+}
+
+export function passwordChangedMessage(to: string, webOrigin: string): MailMessage {
+  return {
+    to,
+    subject: 'Your KeyHouse password was changed',
+    text: [
+      'The password of your KeyHouse account was just changed, and every device was signed out.',
+      '',
+      `If it was you, sign in again: ${webOrigin}/login`,
+      '',
+      "If it wasn't you, reset your password right away:",
+      `${webOrigin}/forgot-password`,
+    ].join('\n'),
+  };
+}
+
 export function alreadyRegisteredMessage(to: string, webOrigin: string): MailMessage {
   return {
     to,

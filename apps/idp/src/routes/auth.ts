@@ -4,12 +4,14 @@ import { z } from 'zod';
 import type { AppDeps } from '../app.js';
 import { recordAudit } from '../audit.js';
 import { HttpError } from '../http/errors.js';
-import { requestMeta } from '../http/request-meta.js';
+import { requestMeta, type RequestMeta } from '../http/request-meta.js';
 import { parseBody } from '../http/validate.js';
 import type { MailMessage } from '../mail/mailer.js';
 import {
   alreadyRegisteredMessage,
   finishSetupMessage,
+  passwordChangedMessage,
+  resetPasswordMessage,
   verifyEmailMessage,
 } from '../mail/templates.js';
 import { getAuth, requireAuth } from '../http/auth-middleware.js';
@@ -56,11 +58,19 @@ const loginBody = z.object({
   password: z.string().min(1).max(PASSWORD_MAX_LENGTH),
 });
 const sessionIdParam = z.uuid();
+const forgotBody = z.object({ email: emailSchema });
+const resetBody = z.object({ token: z.string().max(100), password: passwordSchema });
 
 /** The one response for every accepted registration, new email or not (rule 5). */
 export const REGISTER_ACCEPTED = {
   status: 'accepted',
   message: 'Check your email to continue.',
+} as const;
+
+/** The one response for every password reset request, known email or not (rule 5). */
+export const RESET_REQUESTED = {
+  status: 'accepted',
+  message: 'If an account exists for this email, a reset link is on its way.',
 } as const;
 
 function isUniqueViolation(err: unknown): boolean {
@@ -81,25 +91,33 @@ export function authRouter(deps: AppDeps): Router {
     });
   }
 
-  router.post('/auth/register', async (req, res) => {
-    const meta = requestMeta(req);
-    const { email, password } = parseBody(registerBody, req);
-
-    // Rule 3: breached-password check. Fail closed if the service can't answer.
+  /** Rule 3: breached-password check. Fails closed (503) if the service can't answer. */
+  async function assertNotBreached(
+    password: string,
+    meta: RequestMeta,
+    flow: 'register' | 'password_reset',
+  ): Promise<void> {
     let breached: boolean;
     try {
       breached = await deps.pwned(password);
     } catch (err) {
       if (!(err instanceof PwnedCheckUnavailable)) throw err;
-      await recordAudit(db, 'register.password_check_unavailable', meta, null, {
+      await recordAudit(db, `${flow}.password_check_unavailable`, meta, null, {
         reason: err.message,
       });
       throw new HttpError(503, 'password_check_unavailable', undefined, { 'Retry-After': '30' });
     }
     if (breached) {
-      await recordAudit(db, 'register.rejected_breached_password', meta);
+      await recordAudit(db, `${flow}.rejected_breached_password`, meta);
       throw new HttpError(400, 'password_breached');
     }
+  }
+
+  router.post('/auth/register', async (req, res) => {
+    const meta = requestMeta(req);
+    const { email, password } = parseBody(registerBody, req);
+
+    await assertNotBreached(password, meta, 'register');
 
     // Hash before knowing whether the email exists, so both paths pay the argon2 cost.
     const passwordHash = await hashPassword(password);
@@ -147,6 +165,61 @@ export function authRouter(deps: AppDeps): Router {
     });
     await recordAudit(db, 'email.verified', meta, consumed.userId);
     res.status(200).json({ status: 'verified' });
+  });
+
+  router.post('/auth/forgot-password', async (req, res) => {
+    const meta = requestMeta(req);
+    const { email } = parseBody(forgotBody, req);
+
+    const user = await db.user.findUnique({ where: { email }, select: { id: true } });
+    if (user) {
+      // issueEmailToken also invalidates any older reset link for this user.
+      const token = await issueEmailToken(db, user.id, 'RESET_PASSWORD', RESET_TOKEN_TTL_MS);
+      sendInBackground(resetPasswordMessage(email, config.WEB_ORIGIN, token));
+    }
+    // Both paths write this row, so both pay for at least one insert (rule 5).
+    await recordAudit(db, 'password_reset.requested', meta, user?.id ?? null, {
+      emailHash: hashToken(email),
+    });
+    res.status(202).json(RESET_REQUESTED);
+  });
+
+  router.post('/auth/reset-password', async (req, res) => {
+    const meta = requestMeta(req);
+    const { token, password } = parseBody(resetBody, req);
+
+    // Checked BEFORE consuming the token: a rejected password or a Pwned outage must not
+    // burn the link, or the user would have to request a new email.
+    await assertNotBreached(password, meta, 'password_reset');
+    const passwordHash = await hashPassword(password);
+
+    const consumed = await consumeEmailToken(db, token, 'RESET_PASSWORD');
+    if (!consumed) {
+      await recordAudit(db, 'password_reset.failed', meta);
+      throw new HttpError(400, 'invalid_or_expired_token');
+    }
+
+    const now = new Date();
+    const user = await db.user.update({
+      where: { id: consumed.userId },
+      data: { passwordHash },
+      select: { email: true, emailVerifiedAt: true },
+    });
+    // The link arrived in this inbox, so following it proves ownership of the email.
+    if (!user.emailVerifiedAt) {
+      await db.user.updateMany({
+        where: { id: consumed.userId, emailVerifiedAt: null },
+        data: { emailVerifiedAt: now },
+      });
+    }
+    // Whoever might hold a stolen cookie is signed out along with every real device.
+    const revokedCount = await revokeAllSessions(db, consumed.userId, now);
+    await recordAudit(db, 'password_reset.completed', meta, consumed.userId, { revokedCount });
+
+    // Tells the real owner if this reset wasn't them.
+    sendInBackground(passwordChangedMessage(user.email, config.WEB_ORIGIN));
+    clearSessionCookie(res);
+    res.status(200).json({ status: 'password_reset' });
   });
 
   router.post('/auth/login', async (req, res) => {
