@@ -41,6 +41,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await resetDb();
+  await deps.redis.flushdb(); // rate-limit counters (TEST Redis database only)
   deps.mailer.sent.length = 0;
 });
 

@@ -103,3 +103,33 @@ export async function peek(redis: Redis, key: string): Promise<WindowState> {
 export async function resetCounter(redis: Redis, key: string): Promise<void> {
   await redis.del(RATE_LIMIT_PREFIX + key);
 }
+
+/**
+ * Takes back one hit (e.g. a login attempt that turned out to be a success).
+ * A Lua script runs atomically inside Redis: it only decrements a key that still exists
+ * and is above zero. A plain DECR on an expired key would create "-1" with no expiry.
+ */
+const REFUND_SCRIPT = `
+if redis.call('EXISTS', KEYS[1]) == 1 and tonumber(redis.call('GET', KEYS[1])) > 0 then
+  return redis.call('DECR', KEYS[1])
+end
+return 0`;
+
+export async function refund(redis: Redis, key: string): Promise<void> {
+  await redis.eval(REFUND_SCRIPT, 1, RATE_LIMIT_PREFIX + key);
+}
+
+/** Starts (or restarts) a block that lasts `ms`, e.g. the 15-minute email+IP lock. */
+export async function startBlock(redis: Redis, key: string, ms: number): Promise<void> {
+  await redis.set(RATE_LIMIT_PREFIX + key, '1', 'PX', ms);
+}
+
+/**
+ * Atomically claims a slot that lasts `ms`, only if nobody holds it (SET NX PX).
+ * Returns false if it is already taken. Used for the progressive login delay: of many
+ * parallel attempts, exactly one can claim the slot.
+ */
+export async function tryClaim(redis: Redis, key: string, ms: number): Promise<boolean> {
+  const result = await redis.set(RATE_LIMIT_PREFIX + key, '1', 'PX', ms, 'NX');
+  return result === 'OK';
+}

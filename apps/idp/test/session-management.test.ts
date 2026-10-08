@@ -24,6 +24,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await resetDb();
+  await deps.redis.flushdb(); // rate-limit counters (TEST Redis database only)
 });
 
 async function makeUser(): Promise<{ id: string; email: string }> {

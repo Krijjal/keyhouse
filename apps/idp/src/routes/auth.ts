@@ -37,6 +37,12 @@ import {
   validateSession,
 } from '../security/sessions.js';
 import { consumeEmailToken, hashToken, issueEmailToken } from '../security/tokens.js';
+import {
+  allowResetEmail,
+  beginLoginAttempt,
+  finishLoginAttempt,
+  retryAfterSeconds,
+} from '../security/throttle.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 export const VERIFY_TOKEN_TTL_MS = 24 * HOUR_MS;
@@ -78,7 +84,7 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 export function authRouter(deps: AppDeps): Router {
-  const { prisma: db, config, logger } = deps;
+  const { prisma: db, redis, config, logger } = deps;
   const router = Router();
 
   /**
@@ -170,6 +176,15 @@ export function authRouter(deps: AppDeps): Router {
   router.post('/auth/forgot-password', async (req, res) => {
     const meta = requestMeta(req);
     const { email } = parseBody(forgotBody, req);
+    const emailHash = hashToken(email);
+
+    // Over the limit: the same answer, but no email (stops mail-bombing without revealing
+    // that the address was recently targeted). Counted the same for unknown emails.
+    if (!(await allowResetEmail(redis, emailHash, meta.ip))) {
+      await recordAudit(db, 'password_reset.throttled', meta, null, { emailHash });
+      res.status(202).json(RESET_REQUESTED);
+      return;
+    }
 
     const user = await db.user.findUnique({ where: { email }, select: { id: true } });
     if (user) {
@@ -178,9 +193,7 @@ export function authRouter(deps: AppDeps): Router {
       sendInBackground(resetPasswordMessage(email, config.WEB_ORIGIN, token));
     }
     // Both paths write this row, so both pay for at least one insert (rule 5).
-    await recordAudit(db, 'password_reset.requested', meta, user?.id ?? null, {
-      emailHash: hashToken(email),
-    });
+    await recordAudit(db, 'password_reset.requested', meta, user?.id ?? null, { emailHash });
     res.status(202).json(RESET_REQUESTED);
   });
 
@@ -225,7 +238,20 @@ export function authRouter(deps: AppDeps): Router {
   router.post('/auth/login', async (req, res) => {
     const meta = requestMeta(req);
     const { email, password } = parseBody(loginBody, req);
-    // TODO(1.6): throttling checks go here, before any password work.
+    const emailHash = hashToken(email);
+
+    // Before any database or password work. Keyed by email hash, so unknown emails are
+    // throttled exactly like real ones, and every reason gets the same answer (rule 5).
+    const throttled = await beginLoginAttempt(redis, emailHash, meta.ip);
+    if (throttled) {
+      await recordAudit(db, 'login.throttled', meta, null, {
+        emailHash,
+        reason: throttled.reason,
+      });
+      throw new HttpError(429, 'too_many_attempts', undefined, {
+        'Retry-After': String(retryAfterSeconds(throttled.retryAfterMs)),
+      });
+    }
 
     const user = await db.user.findUnique({
       where: { email },
@@ -237,14 +263,15 @@ export function authRouter(deps: AppDeps): Router {
     if (!user || !ok) {
       // Unknown emails are recorded by hash only: enough to spot a spraying pattern
       // without storing every address someone typed.
-      await recordAudit(db, 'login.failed', meta, user?.id ?? null, {
-        emailHash: hashToken(email),
-      });
+      await recordAudit(db, 'login.failed', meta, user?.id ?? null, { emailHash });
+      await finishLoginAttempt(redis, emailHash, meta.ip, false);
       throw new HttpError(401, 'invalid_credentials');
     }
 
+    // The password was right, so the email counters reset even if the email is unverified.
+    await finishLoginAttempt(redis, emailHash, meta.ip, true);
+
     if (!user.emailVerifiedAt) {
-      // Safe to reveal: only someone who knows the password gets here.
       await recordAudit(db, 'login.unverified', meta, user.id);
       throw new HttpError(403, 'email_not_verified');
     }
