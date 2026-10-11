@@ -10,6 +10,7 @@ export function createRedis(url: string): Redis {
     // With no offline queue, commands sent before the connection is ready are rejected.
     // So the caller must `await redis.connect()` before serving traffic (see server.ts).
     lazyConnect: true,
+    commandTimeout: 500,
   });
 }
 

@@ -119,6 +119,39 @@ export function authRouter(deps: AppDeps): Router {
     }
   }
 
+  /**
+   * ─── EXERCISE A (yours) ─────────────────────────────────────────────────────
+   * Runs Redis work (the rate limiter) and FAILS CLOSED if Redis is down or hangs.
+   *
+   * Must:
+   *  - Run `work()` and give back its result when it succeeds.
+   *  - If it throws for ANY reason (Redis unreachable, the 500 ms command timeout...):
+   *      1. logger.error('rate limiter unavailable', { reason })
+   *         where reason is err.message if err is an Error, otherwise 'unknown'
+   *         (look at sendInBackground above: it does exactly this)
+   *      2. throw new HttpError(503, 'service_unavailable', undefined, { 'Retry-After': '5' })
+   *
+   * Never fall back to "skip the limiter": that would be failing OPEN, and an attacker who
+   * can knock Redis over would get unlimited password guesses.
+   *
+   * Model: assertNotBreached just above uses the same try / catch / throw HttpError shape.
+   * Trap: inside try, write `return await work();`, not `return work();`. Without the
+   * await, the promise is handed back before it fails, so the catch never sees the error.
+   *
+   * `<T>` means "whatever type work gives back": failClosed(() => allowResetEmail(...))
+   * returns a boolean, failClosed(() => beginLoginAttempt(...)) a Throttled | null.
+   */
+  async function failClosed<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (err) {
+      logger.error('rate limiter unavailable', {
+        reason: err instanceof Error ? err.message : 'unknown',
+      });
+      throw new HttpError(503, 'service_unavailable', undefined, { 'Retry-After': '5' });
+    }
+  }
+
   router.post('/auth/register', async (req, res) => {
     const meta = requestMeta(req);
     const { email, password } = parseBody(registerBody, req);
@@ -180,7 +213,7 @@ export function authRouter(deps: AppDeps): Router {
 
     // Over the limit: the same answer, but no email (stops mail-bombing without revealing
     // that the address was recently targeted). Counted the same for unknown emails.
-    if (!(await allowResetEmail(redis, emailHash, meta.ip))) {
+    if (!(await failClosed(() => allowResetEmail(redis, emailHash, meta.ip)))) {
       await recordAudit(db, 'password_reset.throttled', meta, null, { emailHash });
       res.status(202).json(RESET_REQUESTED);
       return;
@@ -242,7 +275,7 @@ export function authRouter(deps: AppDeps): Router {
 
     // Before any database or password work. Keyed by email hash, so unknown emails are
     // throttled exactly like real ones, and every reason gets the same answer (rule 5).
-    const throttled = await beginLoginAttempt(redis, emailHash, meta.ip);
+    const throttled = await failClosed(() => beginLoginAttempt(redis, emailHash, meta.ip));
     if (throttled) {
       await recordAudit(db, 'login.throttled', meta, null, {
         emailHash,
@@ -264,12 +297,12 @@ export function authRouter(deps: AppDeps): Router {
       // Unknown emails are recorded by hash only: enough to spot a spraying pattern
       // without storing every address someone typed.
       await recordAudit(db, 'login.failed', meta, user?.id ?? null, { emailHash });
-      await finishLoginAttempt(redis, emailHash, meta.ip, false);
+      await failClosed(() => finishLoginAttempt(redis, emailHash, meta.ip, false));
       throw new HttpError(401, 'invalid_credentials');
     }
 
     // The password was right, so the email counters reset even if the email is unverified.
-    await finishLoginAttempt(redis, emailHash, meta.ip, true);
+    await failClosed(() => finishLoginAttempt(redis, emailHash, meta.ip, true));
 
     if (!user.emailVerifiedAt) {
       await recordAudit(db, 'login.unverified', meta, user.id);
