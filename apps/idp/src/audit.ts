@@ -14,6 +14,7 @@ export type AuditEventType =
   | 'login.unverified'
   | 'login.throttled'
   | 'session.rotated'
+  | 'request.untrusted_origin'
   | 'logout'
   | 'logout.all_sessions'
   | 'session.revoked'

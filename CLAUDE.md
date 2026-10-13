@@ -65,6 +65,10 @@ pnpm typecheck && pnpm lint && pnpm format:check
 - Forgot-password throttling (decided 2026-10-08): 3 requests per email per hour, 20 per IP
   per hour (IPv6 /64). Over the limit: the same 202 response, but no email is sent (a 429
   would reveal that the address was recently targeted). Prevents mail-bombing a victim.
+- CSRF Origin check (decided 2026-10-11), for every POST/PUT/PATCH/DELETE: an Origin header
+  other than WEB_ORIGIN → 403. No Origin → use Sec-Fetch-Site: 'cross-site' → 403, otherwise
+  allowed. Neither header (curl, tests, server-to-server) → allowed: CSRF needs a victim's
+  browser, and modern browsers always send one of the two. Refusals are audited.
 - Registration of an existing email: same 202 response. Unverified account → "choose your
   password" link (RESET_PASSWORD purpose); verified account → "you already have an account".
   A registration request never overwrites a password (prevents pre-account hijacking).

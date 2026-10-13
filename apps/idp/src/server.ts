@@ -53,8 +53,12 @@ const pwned = createPwnedChecker();
 await getDummyHash();
 
 const app = createApp({ config, prisma, redis, logger, mailer, pwned });
-const server = app.listen(config.IDP_PORT, () => {
-  logger.info('idp listening', { port: config.IDP_PORT, env: config.NODE_ENV });
+const server = app.listen(config.IDP_PORT, config.IDP_HOST, () => {
+  logger.info('idp listening', {
+    host: config.IDP_HOST,
+    port: config.IDP_PORT,
+    env: config.NODE_ENV,
+  });
 });
 
 function shutdown(signal: string): void {

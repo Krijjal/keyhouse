@@ -14,6 +14,9 @@ const configSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     IDP_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    // Which network interface to listen on. 127.0.0.1 = this computer only, so other
+    // devices on the same Wi-Fi can't reach the dev server. Production sets it explicitly.
+    IDP_HOST: z.string().min(1).default('127.0.0.1'),
     IDP_PUBLIC_URL: z.url(),
     WEB_ORIGIN: z.url(),
     DATABASE_URL: postgresUrl,

@@ -8,6 +8,7 @@ import type { Redis } from './redis.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import type { PwnedChecker } from './security/pwned.js';
+import { corsForWebOrigin, requireTrustedOrigin, securityHeaders } from './http/security.js';
 
 export interface AppDeps {
   config: Config;
@@ -27,8 +28,11 @@ export function createApp(deps: AppDeps): Express {
   // address; turning it on blindly would let clients spoof X-Forwarded-For and
   // dodge per-IP rate limits.
   app.set('trust proxy', false);
+  const trustedOrigin = new URL(deps.config.WEB_ORIGIN).origin;
+  app.use(securityHeaders());
+  app.use(requireTrustedOrigin(deps.prisma, trustedOrigin));
+  app.use(corsForWebOrigin(trustedOrigin));
 
-  // Small body limit: auth payloads are tiny, large bodies are only a DoS vector.
   app.use(express.json({ limit: '10kb' }));
 
   app.use(healthRouter(deps));
