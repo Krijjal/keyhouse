@@ -85,6 +85,9 @@ export function corsForWebOrigin(trustedOrigin: string): RequestHandler {
     if (trusted) {
       res.set('Access-Control-Allow-Origin', trustedOrigin);
       res.set('Access-Control-Allow-Credentials', 'true');
+      // Browsers hide most response headers from another origin's JavaScript. This lets
+      // the web app read Retry-After, to show "try again in 12 seconds".
+      res.set('Access-Control-Expose-Headers', 'Retry-After');
     }
 
     if (req.method === 'OPTIONS') {

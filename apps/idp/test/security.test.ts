@@ -58,6 +58,8 @@ describe('exercise 2: CORS', () => {
     expect(res.headers['access-control-allow-origin']).toBe(trusted);
     expect(res.headers['access-control-allow-credentials']).toBe('true');
     expect(String(res.headers.vary)).toMatch(/origin/i);
+    // Without this, the web app can't read Retry-After on a 429.
+    expect(res.headers['access-control-expose-headers']).toBe('Retry-After');
   });
 
   it('gives any other site nothing, and never a wildcard', async () => {
