@@ -69,6 +69,9 @@ pnpm typecheck && pnpm lint && pnpm format:check
   other than WEB_ORIGIN → 403. No Origin → use Sec-Fetch-Site: 'cross-site' → 403, otherwise
   allowed. Neither header (curl, tests, server-to-server) → allowed: CSRF needs a victim's
   browser, and modern browsers always send one of the two. Refusals are audited.
+- Web app → API (decided 2026-10-13): the browser calls the idp directly (fetch with
+  credentials: 'include'), relying on the CORS allowlist and the Origin check. No Next.js
+  proxy: it would make every user share one IP at the idp and break per-IP rate limits.
 - Registration of an existing email: same 202 response. Unverified account → "choose your
   password" link (RESET_PASSWORD purpose); verified account → "you already have an account".
   A registration request never overwrites a password (prevents pre-account hijacking).

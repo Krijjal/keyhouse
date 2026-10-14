@@ -36,6 +36,11 @@ export default defineConfig(
     },
   },
   {
+    // The web app runs in the browser: window, document, fetch ...
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+  {
     files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },

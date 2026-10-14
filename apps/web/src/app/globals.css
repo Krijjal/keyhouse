@@ -1,0 +1,552 @@
+/* KeyHouse web: one column of type on cool paper, one brass key per page.
+   Tokens first; every color below comes from them, so dark mode is just new values. */
+
+:root {
+  --paper: #f2f4f3;
+  --surface: #ffffff;
+  --ink: #17202a;
+  --slate: #5a6670;
+  --line: #d2d9d7;
+  --brass: #9a7420; /* decorative + focus only: too light for body text on paper */
+  --brass-ink: #6b4f10; /* links: brass that passes contrast on paper */
+  --danger: #a8261d;
+  --danger-wash: #fbeceb;
+  --success: #24654a;
+  --success-wash: #e7f3ed;
+
+  --font-sans: var(--font-instrument), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --radius-field: 6px;
+  --radius-button: 999px;
+  --column: 26rem;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #12171c;
+    --surface: #1a2027;
+    --ink: #e6eaec;
+    --slate: #9aa6ae;
+    --line: #2c343c;
+    --brass: #d3ac4e;
+    --brass-ink: #e2c27a;
+    --danger: #f2877e;
+    --danger-wash: #3a1f1d;
+    --success: #7cc3a0;
+    --success-wash: #17302a;
+
+    color-scheme: dark;
+  }
+}
+
+/* ─── Base ─────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.55;
+  font-variation-settings: 'wdth' 100;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--brass-ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: -100px;
+  padding: 8px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: var(--radius-field);
+  z-index: 10;
+}
+
+.skip-link:focus {
+  top: 16px;
+}
+
+/* ─── Page shell ───────────────────────────────────────────────────────────── */
+
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: clamp(16px, 4vw, 40px);
+}
+
+.wordmark {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 650;
+  font-size: 1.125rem;
+  letter-spacing: 0.01em;
+  font-variation-settings: 'wdth' 80;
+}
+
+/* Narrow screens: one column, small key above the title.
+   Wide screens: the form on the left, this page's key drawn large on the right. */
+.shell__main {
+  display: grid;
+  align-content: center;
+  padding-block: clamp(32px, 8vh, 96px);
+}
+
+.shell__art {
+  display: none;
+}
+
+@media (min-width: 60rem) {
+  .shell__main {
+    grid-template-columns: var(--column) minmax(0, 1fr);
+    align-items: center;
+    column-gap: clamp(48px, 8vw, 160px);
+    padding-inline: clamp(0px, 6vw, 112px);
+  }
+
+  .shell__art {
+    display: block;
+  }
+
+  .key.key--inline {
+    display: none;
+  }
+}
+
+.panel {
+  width: min(100%, var(--column));
+}
+
+.panel__title {
+  margin-top: 20px;
+  font-size: clamp(2rem, 1.6rem + 1.6vw, 2.6rem);
+  line-height: 1.05;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variation-settings: 'wdth' 78;
+  text-wrap: balance;
+}
+
+.panel__lede {
+  margin-top: 10px;
+  color: var(--slate);
+  max-width: 34ch;
+  text-wrap: pretty;
+}
+
+.panel__body {
+  margin-top: 28px;
+}
+
+.panel__footer {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--slate);
+  font-size: 0.9375rem;
+}
+
+.shell__footer {
+  color: var(--slate);
+  font-size: 0.8125rem;
+  max-width: 60ch;
+}
+
+/* ─── The key: the one decorative element ─────────────────────────────────── */
+
+.key {
+  display: block;
+  height: auto;
+  color: var(--brass);
+  overflow: visible;
+}
+
+.key--inline {
+  width: 168px;
+  margin-bottom: 4px;
+}
+
+.key--hero {
+  width: min(100%, 620px);
+  margin-inline: auto;
+}
+
+/* Stroke widths are in the drawing's own units, so they're tuned per size to land near
+   1.5px on screen: the big key stays an engraving, not a cartoon. */
+.key path,
+.key circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.key--hero path,
+.key--hero circle {
+  stroke-width: 0.75;
+}
+
+/* One orchestrated moment: the key is drawn in once, when the page opens. */
+@media (prefers-reduced-motion: no-preference) {
+  .key path,
+  .key circle {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: key-draw 900ms cubic-bezier(0.3, 0, 0.2, 1) 120ms forwards;
+  }
+}
+
+@keyframes key-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ─── Forms ────────────────────────────────────────────────────────────────── */
+
+.form {
+  display: grid;
+  gap: 20px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field__label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.field__label {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.field__aside {
+  font-size: 0.875rem;
+}
+
+.field__control {
+  position: relative;
+}
+
+.field__input {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-field);
+  transition: border-color 120ms ease;
+}
+
+.field__input:hover {
+  border-color: var(--slate);
+}
+
+.field__input:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+  border-color: var(--brass);
+}
+
+.field__input--with-toggle {
+  padding-inline-end: 72px;
+}
+
+.field[data-invalid] .field__input {
+  border-color: var(--danger);
+}
+
+.field__toggle {
+  position: absolute;
+  inset-block: 5px;
+  inset-inline-end: 5px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--slate);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.field__toggle:hover {
+  color: var(--ink);
+}
+
+.field__hint {
+  color: var(--slate);
+  font-size: 0.875rem;
+}
+
+.field__hint:empty {
+  display: none;
+}
+
+.field__error {
+  color: var(--danger);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* ─── Buttons ──────────────────────────────────────────────────────────────── */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 22px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-button);
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.button:hover {
+  opacity: 0.88;
+}
+
+a.button {
+  text-decoration: none;
+}
+
+.button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.button--quiet {
+  width: auto;
+  color: var(--ink);
+  background: transparent;
+  border-color: var(--line);
+}
+
+.button--quiet:hover {
+  border-color: var(--slate);
+  opacity: 1;
+}
+
+.button--danger {
+  color: var(--danger);
+}
+
+.button--small {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─── Messages ─────────────────────────────────────────────────────────────── */
+
+.message {
+  padding: 12px 14px;
+  border-radius: var(--radius-field);
+  border-inline-start: 3px solid currentColor;
+  font-size: 0.9375rem;
+}
+
+.message--error {
+  color: var(--danger);
+  background: var(--danger-wash);
+}
+
+.message--success {
+  color: var(--success);
+  background: var(--success-wash);
+}
+
+.message--info {
+  color: var(--ink);
+  background: var(--surface);
+  border-inline-start-color: var(--brass);
+}
+
+.message p + p {
+  margin-top: 6px;
+}
+
+/* ─── States: working, done, check your email ─────────────────────────────── */
+
+.stack {
+  display: grid;
+  gap: 20px;
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--slate);
+}
+
+.check-email {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+
+.check-email:focus {
+  outline: none;
+}
+
+.check-email__title {
+  font-size: 1.25rem;
+  font-weight: 650;
+  font-variation-settings: 'wdth' 85;
+}
+
+.check-email__address {
+  overflow-wrap: anywhere;
+}
+
+.check-email__small {
+  color: var(--slate);
+  font-size: 0.875rem;
+}
+
+/* ─── Account ──────────────────────────────────────────────────────────────── */
+
+.account {
+  display: grid;
+  gap: 28px;
+}
+
+.account__who {
+  overflow-wrap: anywhere;
+}
+
+.section-title {
+  font-size: 1.125rem;
+  font-weight: 650;
+  font-variation-settings: 'wdth' 85;
+}
+
+.section-lede {
+  margin-top: 4px;
+  color: var(--slate);
+  font-size: 0.9375rem;
+}
+
+.sessions {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.session__main {
+  min-width: 0;
+}
+
+.session__device {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-weight: 600;
+}
+
+.session__badge {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--brass-ink);
+}
+
+.session__meta {
+  margin-top: 2px;
+  color: var(--slate);
+  font-size: 0.875rem;
+}
+
+.account__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.account__actions .button {
+  width: auto;
+}
