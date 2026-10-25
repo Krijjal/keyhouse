@@ -33,6 +33,7 @@ model User {
   emailTokens   EmailToken[]
   mfa           UserMfa?
   recoveryCodes MfaRecoveryCode[]
+  mfaTickets    MfaTicket[]
 
   @@map("users")
 }
@@ -113,6 +114,25 @@ model EmailToken {
 
   @@index([userId, purpose])
   @@map("email_tokens")
+}
+
+// "Password was right, now prove the second factor": issued at sign-in when MFA is on.
+// Never a session by itself. Only the SHA-256 of the cookie value is stored (rule 2).
+model MfaTicket {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  // Code attempts made with this ticket; reserved atomically before each check.
+  attempts   Int       @default(0)
+  // Single use: set when the ticket is exchanged for a session, or replaced by a new one.
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_tickets")
 }
 
 // Rule 8: append-only. UPDATE/DELETE/TRUNCATE are rejected by a DB trigger (see migrations).

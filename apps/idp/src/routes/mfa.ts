@@ -4,26 +4,139 @@ import { z } from 'zod';
 import type { AppDeps } from '../app.js';
 import { recordAudit } from '../audit.js';
 import { getAuth, requireAuth } from '../http/auth-middleware.js';
+import { clearMfaCookie, MFA_COOKIE, readCookie } from '../http/cookies.js';
 import { HttpError } from '../http/errors.js';
 import { requestMeta } from '../http/request-meta.js';
+import { completeSignIn } from '../http/sign-in.js';
 import { parseBody } from '../http/validate.js';
-import { mfaEnabledMessage } from '../mail/templates.js';
-import { increment } from '../security/rate-limit.js';
-import { countRemainingRecoveryCodes, issueRecoveryCodes } from '../security/recovery-codes.js';
+import type { MailMessage } from '../mail/mailer.js';
+import { mfaEnabledMessage, recoveryCodeUsedMessage } from '../mail/templates.js';
+import { consumeMfaTicket, reserveMfaAttempt } from '../security/mfa-ticket.js';
+import { increment, resetCounter } from '../security/rate-limit.js';
+import {
+  consumeRecoveryCode,
+  countRemainingRecoveryCodes,
+  issueRecoveryCodes,
+} from '../security/recovery-codes.js';
 import { openSecret, sealSecret, SecretBoxError } from '../security/secret-box.js';
 import { base32Decode, generateTotpSecret, otpauthUri, verifyTotp } from '../security/totp.js';
+import { recordTotpUse } from '../security/totp-use.js';
 import { retryAfterSeconds } from '../security/throttle.js';
 
 /** Wrong confirmation codes while turning MFA on: per user, per window. */
 const ENABLE_MAX_FAILURES = 10;
 const ENABLE_WINDOW_MS = 15 * 60 * 1000;
+/** Wrong codes at sign-in, per account across tickets (owner's decision). */
+const LOGIN_MFA_MAX_FAILURES = 10;
+const LOGIN_MFA_WINDOW_MS = 15 * 60 * 1000;
 
 const enableBody = z.object({ code: z.string().max(20) });
+/** Exactly one of the two: a 6-digit code, or a recovery code. */
+const loginMfaBody = z.union([
+  z.object({ code: z.string().max(20), recoveryCode: z.undefined().optional() }),
+  z.object({ recoveryCode: z.string().max(64), code: z.undefined().optional() }),
+]);
 
 export function mfaRouter(deps: AppDeps): Router {
   const { prisma: db, redis, config, logger } = deps;
   const router = Router();
   const key = Buffer.from(config.MFA_ENCRYPTION_KEY, 'base64url');
+
+  /** Counts one attempt with your limiter. Fails closed (503) if Redis can't count. */
+  async function countAttempt(limiterKey: string, windowMs: number) {
+    try {
+      return await increment(redis, limiterKey, windowMs);
+    } catch (err) {
+      logger.error('rate limiter unavailable', {
+        reason: err instanceof Error ? err.message : 'unknown',
+      });
+      throw new HttpError(503, 'service_unavailable', undefined, { 'Retry-After': '5' });
+    }
+  }
+
+  function sendInBackground(message: MailMessage): void {
+    deps.mailer.send(message).catch((err: unknown) => {
+      logger.error('mail send failed', { reason: err instanceof Error ? err.message : 'unknown' });
+    });
+  }
+
+  /**
+   * Sign-in, step 2: exchange the ticket (cookie) plus a code or a recovery code for a
+   * session. Not behind requireAuth: there is no session yet, only the ticket.
+   */
+  router.post('/auth/login/mfa', async (req, res) => {
+    const meta = requestMeta(req);
+    const { code, recoveryCode } = parseBody(loginMfaBody, req);
+    const ticketToken = readCookie(req, MFA_COOKIE);
+
+    // An attempt is reserved on the ticket before anything is checked (5 per ticket).
+    const ticket = ticketToken ? await reserveMfaAttempt(db, ticketToken) : null;
+    if (!ticket) {
+      clearMfaCookie(res);
+      throw new HttpError(401, 'mfa_ticket_invalid');
+    }
+    const { userId } = ticket;
+
+    // Per account, across tickets: fresh tickets don't buy unlimited guesses.
+    const { count, retryAfterMs } = await countAttempt(`mfa:login:${userId}`, LOGIN_MFA_WINDOW_MS);
+    if (count > LOGIN_MFA_MAX_FAILURES) {
+      await recordAudit(db, 'login.mfa_throttled', meta, userId);
+      throw new HttpError(429, 'too_many_attempts', undefined, {
+        'Retry-After': String(retryAfterSeconds(retryAfterMs)),
+      });
+    }
+
+    const mfa = await db.userMfa.findUnique({ where: { userId } });
+    if (!mfa?.enabledAt || !mfa.secretSealed) {
+      clearMfaCookie(res);
+      throw new HttpError(401, 'mfa_ticket_invalid');
+    }
+
+    let method: 'totp' | 'recovery_code';
+    let accepted: boolean;
+    if (code !== undefined) {
+      method = 'totp';
+      const secret = openSecret(mfa.secretSealed, userId, key);
+      const step = verifyTotp(
+        base32Decode(secret),
+        code.replace(/\s/g, ''),
+        new Date(),
+        mfa.lastUsedStep,
+      );
+      // Your recordTotpUse settles races: of two requests with the same code, one wins.
+      accepted = step !== null && (await recordTotpUse(db, userId, step));
+    } else {
+      method = 'recovery_code';
+      accepted = await consumeRecoveryCode(db, userId, recoveryCode);
+    }
+
+    if (!accepted) {
+      await recordAudit(db, 'login.mfa_failed', meta, userId, { method });
+      throw new HttpError(401, 'invalid_code');
+    }
+
+    // Single use: if a parallel request already exchanged this ticket, this one gets nothing.
+    if (!(await consumeMfaTicket(db, ticket.ticketId))) {
+      clearMfaCookie(res);
+      throw new HttpError(401, 'mfa_ticket_invalid');
+    }
+
+    clearMfaCookie(res);
+    await completeSignIn(db, req, res, userId, meta, { mfa: method });
+    await resetCounter(redis, `mfa:login:${userId}`).catch(() => undefined);
+
+    if (method === 'recovery_code') {
+      const remaining = await countRemainingRecoveryCodes(db, userId);
+      await recordAudit(db, 'mfa.recovery_code_used', meta, userId, { remaining });
+      const user = await db.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { email: true },
+      });
+      sendInBackground(recoveryCodeUsedMessage(user.email, config.WEB_ORIGIN, remaining));
+    }
+
+    res.status(200).json({ status: 'logged_in' });
+  });
 
   // Responses that carry the secret or recovery codes must never be cached anywhere.
   router.use('/auth/mfa', requireAuth(db), (_req, res, next) => {
@@ -75,20 +188,10 @@ export function mfaRouter(deps: AppDeps): Router {
     const { code } = parseBody(enableBody, req);
 
     // Fail closed: if Redis can't count attempts, don't check codes at all.
-    let attempts: number;
-    let retryAfterMs: number;
-    try {
-      ({ count: attempts, retryAfterMs } = await increment(
-        redis,
-        `mfa:enable:${userId}`,
-        ENABLE_WINDOW_MS,
-      ));
-    } catch (err) {
-      logger.error('rate limiter unavailable', {
-        reason: err instanceof Error ? err.message : 'unknown',
-      });
-      throw new HttpError(503, 'service_unavailable', undefined, { 'Retry-After': '5' });
-    }
+    const { count: attempts, retryAfterMs } = await countAttempt(
+      `mfa:enable:${userId}`,
+      ENABLE_WINDOW_MS,
+    );
     if (attempts > ENABLE_MAX_FAILURES) {
       await recordAudit(db, 'mfa.enable_throttled', meta, userId);
       throw new HttpError(429, 'too_many_attempts', undefined, {
@@ -131,9 +234,7 @@ export function mfaRouter(deps: AppDeps): Router {
       where: { id: userId },
       select: { email: true },
     });
-    deps.mailer.send(mfaEnabledMessage(user.email, config.WEB_ORIGIN)).catch((err: unknown) => {
-      logger.error('mail send failed', { reason: err instanceof Error ? err.message : 'unknown' });
-    });
+    sendInBackground(mfaEnabledMessage(user.email, config.WEB_ORIGIN));
 
     res.json({ recoveryCodes });
   });

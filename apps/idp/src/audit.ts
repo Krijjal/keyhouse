@@ -28,7 +28,11 @@ export type AuditEventType =
   | 'mfa.setup_started'
   | 'mfa.enabled'
   | 'mfa.enable_failed'
-  | 'mfa.enable_throttled';
+  | 'mfa.enable_throttled'
+  | 'login.mfa_required'
+  | 'login.mfa_failed'
+  | 'login.mfa_throttled'
+  | 'mfa.recovery_code_used';
 
 /**
  * Rule 8: writes one row to the append-only audit_events table.

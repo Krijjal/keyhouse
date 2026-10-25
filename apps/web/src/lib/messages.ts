@@ -31,6 +31,8 @@ export function messageFor(error: unknown): string {
       return 'This request was blocked because it came from another site.';
     case 'invalid_code':
       return "That code didn't work. Check the 6 digits your app shows now and try again.";
+    case 'mfa_ticket_invalid':
+      return 'Your sign-in timed out or had too many tries. Enter your password again.';
     case 'mfa_already_enabled':
       return 'Two-step verification is already on.';
     case 'mfa_setup_not_started':

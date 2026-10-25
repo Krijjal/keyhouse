@@ -69,6 +69,26 @@ export function mfaEnabledMessage(to: string, webOrigin: string): MailMessage {
   };
 }
 
+export function recoveryCodeUsedMessage(
+  to: string,
+  webOrigin: string,
+  remaining: number,
+): MailMessage {
+  return {
+    to,
+    subject: 'A KeyHouse recovery code was used',
+    text: [
+      'Someone just signed in to your KeyHouse account with a recovery code instead of a code',
+      `from your authenticator app. You have ${remaining} recovery ${remaining === 1 ? 'code' : 'codes'} left.`,
+      '',
+      'If it was you and you lost your phone, set up two-step verification again on a new one.',
+      '',
+      "If it wasn't you, someone has your password and a recovery code: reset your password now.",
+      `${webOrigin}/forgot-password`,
+    ].join('\n'),
+  };
+}
+
 export function passwordChangedMessage(to: string, webOrigin: string): MailMessage {
   return {
     to,

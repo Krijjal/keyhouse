@@ -15,12 +15,9 @@ import {
   verifyEmailMessage,
 } from '../mail/templates.js';
 import { getAuth, requireAuth } from '../http/auth-middleware.js';
-import {
-  clearSessionCookie,
-  readCookie,
-  SESSION_COOKIE,
-  setSessionCookie,
-} from '../http/cookies.js';
+import { clearSessionCookie, readCookie, SESSION_COOKIE, setMfaCookie } from '../http/cookies.js';
+import { completeSignIn } from '../http/sign-in.js';
+import { issueMfaTicket } from '../security/mfa-ticket.js';
 import {
   hashPassword,
   PASSWORD_MAX_LENGTH,
@@ -29,7 +26,6 @@ import {
 } from '../security/passwords.js';
 import { PwnedCheckUnavailable } from '../security/pwned.js';
 import {
-  createSession,
   listActiveSessions,
   revokeAllSessions,
   revokeOwnSession,
@@ -309,22 +305,21 @@ export function authRouter(deps: AppDeps): Router {
       throw new HttpError(403, 'email_not_verified');
     }
 
-    // Session fixation defense: whatever session cookie the browser arrived with is
-    // revoked; the user always gets a brand-new token.
-    const previousToken = readCookie(req, SESSION_COOKIE);
-    if (previousToken) {
-      const previous = await validateSession(db, previousToken);
-      if (previous) {
-        await revokeSession(db, previous.sessionId);
-        await recordAudit(db, 'session.rotated', meta, previous.userId, {
-          revokedSessionId: previous.sessionId,
-        });
-      }
+    // MFA on: the password alone never creates a session. It earns a short-lived,
+    // single-use ticket (HttpOnly cookie) to exchange for a session with a code.
+    const mfa = await db.userMfa.findUnique({
+      where: { userId: user.id },
+      select: { enabledAt: true },
+    });
+    if (mfa?.enabledAt) {
+      const ticket = await issueMfaTicket(db, user.id);
+      setMfaCookie(res, ticket);
+      await recordAudit(db, 'login.mfa_required', meta, user.id);
+      res.status(200).json({ status: 'mfa_required' });
+      return;
     }
 
-    const session = await createSession(db, user.id, meta);
-    setSessionCookie(res, session.token);
-    await recordAudit(db, 'login.succeeded', meta, user.id, { sessionId: session.sessionId });
+    await completeSignIn(db, req, res, user.id, meta);
     res.status(200).json({ status: 'logged_in' });
   });
 

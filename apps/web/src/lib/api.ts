@@ -116,8 +116,15 @@ export const auth = {
     api<unknown>('/auth/register', { method: 'POST', body: { email, password } }),
   verifyEmail: (token: string) =>
     api<unknown>('/auth/verify-email', { method: 'POST', body: { token } }),
+  /** "mfa_required": the password was right; finish with loginMfa. */
   login: (email: string, password: string) =>
-    api<unknown>('/auth/login', { method: 'POST', body: { email, password } }),
+    api<{ status: 'logged_in' | 'mfa_required' }>('/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    }),
+  /** The second step. The ticket travels in an HttpOnly cookie, never through this page. */
+  loginMfa: (proof: { code: string } | { recoveryCode: string }) =>
+    api<{ status: 'logged_in' }>('/auth/login/mfa', { method: 'POST', body: proof }),
   forgotPassword: (email: string) =>
     api<unknown>('/auth/forgot-password', { method: 'POST', body: { email } }),
   resetPassword: (token: string, password: string) =>

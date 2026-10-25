@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { MFA_TICKET_TTL_MS } from '../security/mfa-ticket.js';
 import { SESSION_ABSOLUTE_TTL_MS } from '../security/sessions.js';
 
 /**
@@ -24,6 +25,28 @@ export function setSessionCookie(res: Response, token: string): void {
 
 export function clearSessionCookie(res: Response): void {
   res.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS);
+}
+
+/**
+ * The MFA ticket between the password step and the code step (owner's decision): same
+ * protections as the session cookie, but SameSite=Strict, because it is only ever used by
+ * our own sign-in page and has no reason to travel with any cross-site request.
+ */
+export const MFA_COOKIE = '__Host-mfa';
+
+const MFA_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'strict',
+  path: '/',
+} as const;
+
+export function setMfaCookie(res: Response, token: string): void {
+  res.cookie(MFA_COOKIE, token, { ...MFA_COOKIE_OPTIONS, maxAge: MFA_TICKET_TTL_MS });
+}
+
+export function clearMfaCookie(res: Response): void {
+  res.clearCookie(MFA_COOKIE, MFA_COOKIE_OPTIONS);
 }
 
 /** Reads one cookie from the Cookie header without a parsing library. */

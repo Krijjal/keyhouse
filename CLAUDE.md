@@ -82,6 +82,9 @@ pnpm typecheck && pnpm lint && pnpm format:check
     audited and emails an alert.
   - A correct password with MFA on gives only a short-lived, single-use, hashed "MFA pending"
     ticket, never a session. Code attempts are rate-limited, and a code can't be reused.
+  - The ticket (decided 2026-10-25) lives in a `__Host-mfa` cookie (HttpOnly, Secure,
+    SameSite=Strict), lasts 5 minutes and allows 5 code attempts; after that the password is
+    needed again. Per account, at most 10 wrong codes per 15 minutes across tickets.
   - The owner writes the security core: code verification with replay protection, secret
     encryption/decryption, recovery-code consumption.
 - Registration of an existing email: same 202 response. Unverified account → "choose your
