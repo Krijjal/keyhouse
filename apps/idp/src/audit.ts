@@ -24,7 +24,11 @@ export type AuditEventType =
   | 'password_reset.completed'
   | 'password_reset.failed'
   | 'password_reset.rejected_breached_password'
-  | 'password_reset.password_check_unavailable';
+  | 'password_reset.password_check_unavailable'
+  | 'mfa.setup_started'
+  | 'mfa.enabled'
+  | 'mfa.enable_failed'
+  | 'mfa.enable_throttled';
 
 /**
  * Rule 8: writes one row to the append-only audit_events table.

@@ -53,6 +53,22 @@ export function resetPasswordMessage(to: string, webOrigin: string, token: strin
   };
 }
 
+export function mfaEnabledMessage(to: string, webOrigin: string): MailMessage {
+  return {
+    to,
+    subject: 'Two-step verification is on for your KeyHouse account',
+    text: [
+      'Two-step verification was just turned on for your KeyHouse account. From now on,',
+      'signing in needs your password and a code from your authenticator app.',
+      '',
+      'Keep your recovery codes somewhere safe. Each one works once if you lose your phone.',
+      '',
+      "If it wasn't you, someone has your password: reset it right away.",
+      `${webOrigin}/forgot-password`,
+    ].join('\n'),
+  };
+}
+
 export function passwordChangedMessage(to: string, webOrigin: string): MailMessage {
   return {
     to,

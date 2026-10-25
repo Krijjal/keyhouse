@@ -550,3 +550,81 @@ a.button {
 .account__actions .button {
   width: auto;
 }
+
+.button--inline {
+  width: auto;
+  margin-top: 12px;
+}
+
+/* ─── Two-step setup ──────────────────────────────────────────────────────── */
+
+.setup__steps {
+  display: grid;
+  gap: 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup__steps > li {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.qr {
+  display: block;
+  margin-top: 6px;
+  padding: 10px;
+  background: #ffffff; /* QR codes need a light background in dark mode too */
+  border: 1px solid var(--line);
+  border-radius: var(--radius-field);
+}
+
+.link-button {
+  padding: 0;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--brass-ink);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
+.secret {
+  display: grid;
+  gap: 4px;
+}
+
+.secret__label {
+  color: var(--slate);
+  font-size: 0.875rem;
+}
+
+.secret__value,
+.codes code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 20px;
+  margin: 0;
+  padding: 14px 16px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-field);
+}
+
+@media (max-width: 26rem) {
+  .codes {
+    grid-template-columns: 1fr;
+  }
+}

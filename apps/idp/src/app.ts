@@ -7,6 +7,7 @@ import type { Mailer } from './mail/mailer.js';
 import type { Redis } from './redis.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
+import { mfaRouter } from './routes/mfa.js';
 import type { PwnedChecker } from './security/pwned.js';
 import { corsForWebOrigin, requireTrustedOrigin, securityHeaders } from './http/security.js';
 
@@ -37,6 +38,7 @@ export function createApp(deps: AppDeps): Express {
 
   app.use(healthRouter(deps));
   app.use(authRouter(deps));
+  app.use(mfaRouter(deps));
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'not_found' });

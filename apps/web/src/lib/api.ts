@@ -89,6 +89,28 @@ export interface SessionInfo {
   current: boolean;
 }
 
+export interface MfaStatus {
+  enabled: boolean;
+  enabledAt: string | null;
+  recoveryCodesLeft: number;
+}
+
+export interface MfaSetup {
+  /** Base32, for typing into the app by hand. Shown once, never stored by the page. */
+  secret: string;
+  otpauthUri: string;
+  /** PNG data: URL of the QR code. */
+  qrDataUrl: string;
+}
+
+export const mfa = {
+  status: () => api<MfaStatus>('/auth/mfa'),
+  setup: () => api<MfaSetup>('/auth/mfa/setup', { method: 'POST' }),
+  enable: async (code: string) =>
+    (await api<{ recoveryCodes: string[] }>('/auth/mfa/enable', { method: 'POST', body: { code } }))
+      .recoveryCodes,
+};
+
 export const auth = {
   register: (email: string, password: string) =>
     api<unknown>('/auth/register', { method: 'POST', body: { email, password } }),

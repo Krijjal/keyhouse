@@ -29,6 +29,12 @@ export function messageFor(error: unknown): string {
       return 'That session has already ended.';
     case 'forbidden_origin':
       return 'This request was blocked because it came from another site.';
+    case 'invalid_code':
+      return "That code didn't work. Check the 6 digits your app shows now and try again.";
+    case 'mfa_already_enabled':
+      return 'Two-step verification is already on.';
+    case 'mfa_setup_not_started':
+      return 'Setup expired or was restarted. Start again to get a new QR code.';
     case 'network_error':
       return "Can't reach KeyHouse. Check your connection and try again.";
     case 'invalid_request':

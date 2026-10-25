@@ -3,11 +3,12 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { FormMessage } from '@/components/FormMessage';
-import { ApiError, auth, type Me, type SessionInfo } from '@/lib/api';
+import Link from 'next/link';
+import { ApiError, auth, mfa, type Me, type MfaStatus, type SessionInfo } from '@/lib/api';
 import { describeDevice, shortDateTime, timeAgo } from '@/lib/describe';
 import { messageFor } from '@/lib/messages';
 
-type Loaded = { me: Me; sessions: SessionInfo[] };
+type Loaded = { me: Me; sessions: SessionInfo[]; mfa: MfaStatus };
 
 export function Account() {
   const router = useRouter();
@@ -30,8 +31,12 @@ export function Account() {
 
   const load = useCallback(async () => {
     try {
-      const [me, sessions] = await Promise.all([auth.me(), auth.sessions()]);
-      setData({ me, sessions });
+      const [me, sessions, mfaStatus] = await Promise.all([
+        auth.me(),
+        auth.sessions(),
+        mfa.status(),
+      ]);
+      setData({ me, sessions, mfa: mfaStatus });
     } catch (err) {
       handle(err);
     }
@@ -91,6 +96,29 @@ export function Account() {
       <p className="account__who">
         Signed in as <strong>{data.me.email}</strong>
       </p>
+
+      <section aria-labelledby="mfa-title" className="account__section">
+        <h2 id="mfa-title" className="section-title">
+          Two-step verification
+        </h2>
+        {data.mfa.enabled ? (
+          <p className="section-lede">
+            On. Signing in needs your password and a code from your authenticator app. You have{' '}
+            {data.mfa.recoveryCodesLeft} recovery{' '}
+            {data.mfa.recoveryCodesLeft === 1 ? 'code' : 'codes'} left.
+          </p>
+        ) : (
+          <>
+            <p className="section-lede">
+              Off. Add a code from your phone to signing in, so a stolen password alone isn&apos;t
+              enough.
+            </p>
+            <Link className="button button--quiet button--inline" href="/account/two-step">
+              Set up two-step verification
+            </Link>
+          </>
+        )}
+      </section>
 
       <section aria-labelledby="sessions-title" className="account__section">
         <h2 id="sessions-title" className="section-title">
