@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ApiError, auth, mfa, type Me, type MfaStatus, type SessionInfo } from '@/lib/api';
 import { describeDevice, shortDateTime, timeAgo } from '@/lib/describe';
 import { messageFor } from '@/lib/messages';
+import { MfaManage } from './MfaManage';
 
 type Loaded = { me: Me; sessions: SessionInfo[]; mfa: MfaStatus };
 
@@ -14,6 +15,8 @@ export function Account() {
   const router = useRouter();
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** A success line after a two-step change, e.g. "Two-step verification is off." */
+  const [notice, setNotice] = useState<string | null>(null);
   /** Which action is running: a session id, "all", or "self". Blocks double clicks. */
   const [pending, setPending] = useState<string | null>(null);
 
@@ -54,6 +57,7 @@ export function Account() {
     if (pending) return;
     setPending(key);
     setError(null);
+    setNotice(null);
     try {
       await action();
       await then();
@@ -91,6 +95,7 @@ export function Account() {
 
   return (
     <div className="account">
+      {notice ? <FormMessage tone="success">{notice}</FormMessage> : null}
       {error ? <FormMessage tone="error">{error}</FormMessage> : null}
 
       <p className="account__who">
@@ -102,11 +107,13 @@ export function Account() {
           Two-step verification
         </h2>
         {data.mfa.enabled ? (
-          <p className="section-lede">
-            On. Signing in needs your password and a code from your authenticator app. You have{' '}
-            {data.mfa.recoveryCodesLeft} recovery{' '}
-            {data.mfa.recoveryCodesLeft === 1 ? 'code' : 'codes'} left.
-          </p>
+          <MfaManage
+            recoveryCodesLeft={data.mfa.recoveryCodesLeft}
+            onChanged={(message) => {
+              setNotice(message);
+              void load();
+            }}
+          />
         ) : (
           <>
             <p className="section-lede">

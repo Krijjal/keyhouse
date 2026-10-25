@@ -85,6 +85,11 @@ pnpm typecheck && pnpm lint && pnpm format:check
   - The ticket (decided 2026-10-25) lives in a `__Host-mfa` cookie (HttpOnly, Secure,
     SameSite=Strict), lasts 5 minutes and allows 5 code attempts; after that the password is
     needed again. Per account, at most 10 wrong codes per 15 minutes across tickets.
+  - Turning MFA off and replacing recovery codes (2.6) both need the password AND a current
+    code; a recovery code counts as the code (the lost-phone case). The password is checked
+    first, so a wrong one never uses up a code. One answer for either being wrong, at most
+    10 tries per account per 15 minutes. Off = secret wiped, recovery codes revoked; both
+    changes are audited and emailed.
   - The owner writes the security core: code verification with replay protection, secret
     encryption/decryption, recovery-code consumption.
 - Registration of an existing email: same 202 response. Unverified account → "choose your

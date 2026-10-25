@@ -89,6 +89,38 @@ export function recoveryCodeUsedMessage(
   };
 }
 
+export function mfaDisabledMessage(to: string, webOrigin: string): MailMessage {
+  return {
+    to,
+    subject: 'Two-step verification is off for your KeyHouse account',
+    text: [
+      'Two-step verification was just turned off for your KeyHouse account. Signing in now',
+      'needs only your password, and your old recovery codes no longer work.',
+      '',
+      `If it was you, you can turn it back on any time: ${webOrigin}/account`,
+      '',
+      "If it wasn't you, someone has your password and your phone or a recovery code:",
+      'reset your password right away.',
+      `${webOrigin}/forgot-password`,
+    ].join('\n'),
+  };
+}
+
+export function recoveryCodesReplacedMessage(to: string, webOrigin: string): MailMessage {
+  return {
+    to,
+    subject: 'Your KeyHouse recovery codes were replaced',
+    text: [
+      'A new set of recovery codes was just created for your KeyHouse account. The old ones',
+      'no longer work.',
+      '',
+      "If it wasn't you, someone has your password and your phone or a recovery code:",
+      'reset your password right away.',
+      `${webOrigin}/forgot-password`,
+    ].join('\n'),
+  };
+}
+
 export function passwordChangedMessage(to: string, webOrigin: string): MailMessage {
   return {
     to,

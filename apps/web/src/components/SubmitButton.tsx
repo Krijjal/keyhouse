@@ -7,11 +7,18 @@ interface SubmitButtonProps {
   children: ReactNode;
   /** The same action in progress, e.g. "Signing in". */
   busyLabel: string;
+  /** Red, for actions that weaken the account, e.g. turning off two-step verification. */
+  destructive?: boolean;
 }
 
-export function SubmitButton({ busy, children, busyLabel }: SubmitButtonProps) {
+export function SubmitButton({ busy, children, busyLabel, destructive }: SubmitButtonProps) {
   return (
-    <button type="submit" className="button" disabled={busy} aria-busy={busy}>
+    <button
+      type="submit"
+      className={destructive ? 'button button--destructive' : 'button'}
+      disabled={busy}
+      aria-busy={busy}
+    >
       {busy ? (
         <>
           <span className="spinner" aria-hidden="true" />

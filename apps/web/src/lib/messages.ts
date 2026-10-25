@@ -35,6 +35,10 @@ export function messageFor(error: unknown): string {
       return 'Your sign-in timed out or had too many tries. Enter your password again.';
     case 'mfa_already_enabled':
       return 'Two-step verification is already on.';
+    case 'invalid_password_or_code':
+      return "That password and code don't match. Check both and try again.";
+    case 'mfa_not_enabled':
+      return 'Two-step verification is already off.';
     case 'mfa_setup_not_started':
       return 'Setup expired or was restarted. Start again to get a new QR code.';
     case 'network_error':

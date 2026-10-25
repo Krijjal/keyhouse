@@ -32,7 +32,11 @@ export type AuditEventType =
   | 'login.mfa_required'
   | 'login.mfa_failed'
   | 'login.mfa_throttled'
-  | 'mfa.recovery_code_used';
+  | 'mfa.recovery_code_used'
+  | 'mfa.reauth_failed'
+  | 'mfa.reauth_throttled'
+  | 'mfa.disabled'
+  | 'mfa.recovery_codes_replaced';
 
 /**
  * Rule 8: writes one row to the append-only audit_events table.

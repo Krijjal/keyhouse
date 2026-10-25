@@ -382,6 +382,12 @@ a.button {
   color: var(--danger);
 }
 
+.button--destructive {
+  color: var(--paper);
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
 .button--small {
   min-height: 36px;
   padding: 0 14px;
@@ -554,6 +560,16 @@ a.button {
 .button--inline {
   width: auto;
   margin-top: 12px;
+}
+
+.account__actions--spaced {
+  margin-top: 12px;
+}
+
+.mfa-confirm {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 /* ─── Two-step setup ──────────────────────────────────────────────────────── */

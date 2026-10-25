@@ -109,7 +109,19 @@ export const mfa = {
   enable: async (code: string) =>
     (await api<{ recoveryCodes: string[] }>('/auth/mfa/enable', { method: 'POST', body: { code } }))
       .recoveryCodes,
+  /** Both need the password AND a current code (or a recovery code): a session isn't enough. */
+  disable: (proof: MfaProof) =>
+    api<undefined>('/auth/mfa/disable', { method: 'POST', body: proof }),
+  replaceRecoveryCodes: async (proof: MfaProof) =>
+    (
+      await api<{ recoveryCodes: string[] }>('/auth/mfa/recovery-codes', {
+        method: 'POST',
+        body: proof,
+      })
+    ).recoveryCodes,
 };
+
+export type MfaProof = { password: string } & ({ code: string } | { recoveryCode: string });
 
 export const auth = {
   register: (email: string, password: string) =>

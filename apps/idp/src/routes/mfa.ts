@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
@@ -10,8 +10,14 @@ import { requestMeta } from '../http/request-meta.js';
 import { completeSignIn } from '../http/sign-in.js';
 import { parseBody } from '../http/validate.js';
 import type { MailMessage } from '../mail/mailer.js';
-import { mfaEnabledMessage, recoveryCodeUsedMessage } from '../mail/templates.js';
+import {
+  mfaDisabledMessage,
+  mfaEnabledMessage,
+  recoveryCodesReplacedMessage,
+  recoveryCodeUsedMessage,
+} from '../mail/templates.js';
 import { consumeMfaTicket, reserveMfaAttempt } from '../security/mfa-ticket.js';
+import { PASSWORD_MAX_LENGTH, verifyPassword } from '../security/passwords.js';
 import { increment, resetCounter } from '../security/rate-limit.js';
 import {
   consumeRecoveryCode,
@@ -29,12 +35,29 @@ const ENABLE_WINDOW_MS = 15 * 60 * 1000;
 /** Wrong codes at sign-in, per account across tickets (owner's decision). */
 const LOGIN_MFA_MAX_FAILURES = 10;
 const LOGIN_MFA_WINDOW_MS = 15 * 60 * 1000;
+/** Password + code checks before turning MFA off or replacing codes: per user, per window. */
+const REAUTH_MAX_ATTEMPTS = 10;
+const REAUTH_WINDOW_MS = 15 * 60 * 1000;
 
 const enableBody = z.object({ code: z.string().max(20) });
 /** Exactly one of the two: a 6-digit code, or a recovery code. */
 const loginMfaBody = z.union([
   z.object({ code: z.string().max(20), recoveryCode: z.undefined().optional() }),
   z.object({ recoveryCode: z.string().max(64), code: z.undefined().optional() }),
+]);
+/** The password, plus exactly one of a 6-digit code or a recovery code. */
+const passwordField = z.string().min(1).max(PASSWORD_MAX_LENGTH);
+const reauthBody = z.union([
+  z.object({
+    password: passwordField,
+    code: z.string().max(20),
+    recoveryCode: z.undefined().optional(),
+  }),
+  z.object({
+    password: passwordField,
+    recoveryCode: z.string().max(64),
+    code: z.undefined().optional(),
+  }),
 ]);
 
 export function mfaRouter(deps: AppDeps): Router {
@@ -58,6 +81,59 @@ export function mfaRouter(deps: AppDeps): Router {
     deps.mailer.send(message).catch((err: unknown) => {
       logger.error('mail send failed', { reason: err instanceof Error ? err.message : 'unknown' });
     });
+  }
+
+  /**
+   * For changes that weaken or reset MFA: a session alone is not enough. Someone at an
+   * unlocked laptop, or holding a stolen session cookie, has neither the password nor the
+   * phone. Throws unless BOTH are right; returns the user's email for the alert.
+   */
+  async function confirmPasswordAndCode(
+    req: Request,
+    userId: string,
+    action: 'disable' | 'replace_recovery_codes',
+  ): Promise<string> {
+    const meta = requestMeta(req);
+    const { password, code, recoveryCode } = parseBody(reauthBody, req);
+
+    const { count, retryAfterMs } = await countAttempt(`mfa:reauth:${userId}`, REAUTH_WINDOW_MS);
+    if (count > REAUTH_MAX_ATTEMPTS) {
+      await recordAudit(db, 'mfa.reauth_throttled', meta, userId, { action });
+      throw new HttpError(429, 'too_many_attempts', undefined, {
+        'Retry-After': String(retryAfterSeconds(retryAfterMs)),
+      });
+    }
+
+    const mfa = await db.userMfa.findUnique({ where: { userId } });
+    if (!mfa?.enabledAt || !mfa.secretSealed) throw new HttpError(409, 'mfa_not_enabled');
+    const user = await db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { email: true, passwordHash: true },
+    });
+
+    // Password first. A wrong password stops here, so it can't use up a code on the way.
+    let accepted = await verifyPassword(user.passwordHash, password);
+    if (accepted && code !== undefined) {
+      const secret = openSecret(mfa.secretSealed, userId, key);
+      const step = verifyTotp(
+        base32Decode(secret),
+        code.replace(/\s/g, ''),
+        new Date(),
+        mfa.lastUsedStep,
+      );
+      accepted = step !== null && (await recordTotpUse(db, userId, step));
+    } else if (accepted && recoveryCode !== undefined) {
+      // Lost phone: a recovery code is the only second factor left, so it counts here too.
+      accepted = await consumeRecoveryCode(db, userId, recoveryCode);
+    }
+
+    if (!accepted) {
+      // One answer for both: a stolen session must not learn whether the password was right.
+      await recordAudit(db, 'mfa.reauth_failed', meta, userId, { action });
+      throw new HttpError(400, 'invalid_password_or_code');
+    }
+    await resetCounter(redis, `mfa:reauth:${userId}`).catch(() => undefined);
+    return user.email;
   }
 
   /**
@@ -236,6 +312,43 @@ export function mfaRouter(deps: AppDeps): Router {
     });
     sendInBackground(mfaEnabledMessage(user.email, config.WEB_ORIGIN));
 
+    res.json({ recoveryCodes });
+  });
+
+  /** Turn MFA off: wipe the sealed secret and revoke every recovery code (no deletes). */
+  router.post('/auth/mfa/disable', async (req, res) => {
+    const meta = requestMeta(req);
+    const { userId } = getAuth(res);
+    const email = await confirmPasswordAndCode(req, userId, 'disable');
+
+    const now = new Date();
+    const [switched] = await db.$transaction([
+      // Off only if still on: of two parallel requests, one does it and the other gets 409.
+      db.userMfa.updateMany({
+        where: { userId, enabledAt: { not: null } },
+        data: { enabledAt: null, secretSealed: null, lastUsedStep: null },
+      }),
+      db.mfaRecoveryCode.updateMany({
+        where: { userId, usedAt: null, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+    ]);
+    if (switched.count !== 1) throw new HttpError(409, 'mfa_not_enabled');
+
+    await recordAudit(db, 'mfa.disabled', meta, userId);
+    sendInBackground(mfaDisabledMessage(email, config.WEB_ORIGIN));
+    res.status(204).end();
+  });
+
+  /** A fresh set of 10 codes. issueRecoveryCodes revokes the old set in the same transaction. */
+  router.post('/auth/mfa/recovery-codes', async (req, res) => {
+    const meta = requestMeta(req);
+    const { userId } = getAuth(res);
+    const email = await confirmPasswordAndCode(req, userId, 'replace_recovery_codes');
+
+    const recoveryCodes = await issueRecoveryCodes(db, userId);
+    await recordAudit(db, 'mfa.recovery_codes_replaced', meta, userId);
+    sendInBackground(recoveryCodesReplacedMessage(email, config.WEB_ORIGIN));
     res.json({ recoveryCodes });
   });
 

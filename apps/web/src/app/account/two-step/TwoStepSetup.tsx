@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import { Field } from '@/components/Field';
 import { FormMessage } from '@/components/FormMessage';
+import { RecoveryCodes } from '@/components/RecoveryCodes';
 import { SubmitButton } from '@/components/SubmitButton';
 import { ApiError, mfa, type MfaSetup } from '@/lib/api';
 import { messageFor } from '@/lib/messages';
@@ -103,7 +104,15 @@ export function TwoStepSetup() {
   }
 
   if (stage.kind === 'done') {
-    return <RecoveryCodes codes={stage.codes} />;
+    return (
+      <RecoveryCodes
+        codes={stage.codes}
+        notice="Two-step verification is on."
+        onDone={() => {
+          router.push('/account');
+        }}
+      />
+    );
   }
 
   const { setup } = stage;
@@ -158,59 +167,6 @@ export function TwoStepSetup() {
           </form>
         </li>
       </ol>
-    </div>
-  );
-}
-
-function RecoveryCodes({ codes }: { codes: string[] }) {
-  const [copied, setCopied] = useState(false);
-  const text = codes.join('\n');
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-  };
-
-  const download = () => {
-    const blob = new Blob([`KeyHouse recovery codes. Each works once.\n\n${text}\n`], {
-      type: 'text/plain',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'keyhouse-recovery-codes.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="stack">
-      <FormMessage tone="success">Two-step verification is on.</FormMessage>
-      <div>
-        <h2 className="section-title">Save your recovery codes</h2>
-        <p className="section-lede">
-          If you lose your phone, each of these signs you in once instead of a code. This is the
-          only time you&apos;ll see them: store them in a password manager or print them.
-        </p>
-      </div>
-      <ul className="codes" aria-label="Recovery codes">
-        {codes.map((code) => (
-          <li key={code}>
-            <code>{code}</code>
-          </li>
-        ))}
-      </ul>
-      <div className="account__actions">
-        <button type="button" className="button button--quiet" onClick={() => void copy()}>
-          {copied ? 'Copied' : 'Copy codes'}
-        </button>
-        <button type="button" className="button button--quiet" onClick={download}>
-          Download as text
-        </button>
-      </div>
-      <Link className="button" href="/account">
-        I&apos;ve saved them
-      </Link>
     </div>
   );
 }
