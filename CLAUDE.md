@@ -72,6 +72,18 @@ pnpm typecheck && pnpm lint && pnpm format:check
 - Web app → API (decided 2026-10-13): the browser calls the idp directly (fetch with
   credentials: 'include'), relying on the CORS allowlist and the Origin check. No Next.js
   proxy: it would make every user share one IP at the idp and break per-IP rate limits.
+- MFA / TOTP (decided 2026-10-14):
+  - Optional per user, turned on from the account page. Turning it off needs the password
+    and a current code.
+  - The TOTP secret is the one exception to rule 2: it can't be hashed (the server must
+    compute codes from it), so it is encrypted at rest with AES-256-GCM, a key from .env
+    (MFA_ENCRYPTION_KEY), a random IV per encryption, and the user id as associated data.
+  - 10 single-use recovery codes, shown once, stored only as SHA-256 hashes. Using one is
+    audited and emails an alert.
+  - A correct password with MFA on gives only a short-lived, single-use, hashed "MFA pending"
+    ticket, never a session. Code attempts are rate-limited, and a code can't be reused.
+  - The owner writes the security core: code verification with replay protection, secret
+    encryption/decryption, recovery-code consumption.
 - Registration of an existing email: same 202 response. Unverified account → "choose your
   password" link (RESET_PASSWORD purpose); verified account → "you already have an account".
   A registration request never overwrites a password (prevents pre-account hijacking).

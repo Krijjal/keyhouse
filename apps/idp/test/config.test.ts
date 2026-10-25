@@ -15,6 +15,7 @@ const validEnv = {
   SMTP_HOST: '127.0.0.1',
   SMTP_PORT: '1025',
   MAIL_FROM: 'KeyHouse <no-reply@keyhouse.local>',
+  MFA_ENCRYPTION_KEY: randomBytes(32).toString('base64url'),
 };
 
 function errorFrom(env: NodeJS.ProcessEnv): ConfigError {
@@ -54,6 +55,16 @@ describe('loadConfig', () => {
       DATABASE_URL: 'postgresql://keyhouse:change-me@db:5432/keyhouse',
     });
     expect(err.message).toContain('DATABASE_URL');
+  });
+
+  it('rejects an MFA key that is not exactly 32 bytes, without echoing it', () => {
+    expect(errorFrom({ ...validEnv, MFA_ENCRYPTION_KEY: 'change-me' }).message).toContain(
+      'MFA_ENCRYPTION_KEY',
+    );
+    const short = randomBytes(16).toString('base64url');
+    const err = errorFrom({ ...validEnv, MFA_ENCRYPTION_KEY: short });
+    expect(err.message).toContain('MFA_ENCRYPTION_KEY');
+    expect(err.message).not.toContain(short);
   });
 
   it('requires https origins in production', () => {

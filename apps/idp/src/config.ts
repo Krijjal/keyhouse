@@ -24,6 +24,12 @@ const configSchema = z
     SMTP_HOST: z.string().min(1),
     SMTP_PORT: z.coerce.number().int().min(1).max(65535),
     MAIL_FROM: z.string().min(3),
+    // Encrypts TOTP secrets at rest (the one exception to rule 2). 32 random bytes, base64url.
+    MFA_ENCRYPTION_KEY: z
+      .string()
+      .refine((v) => /^[A-Za-z0-9_-]+$/.test(v) && Buffer.from(v, 'base64url').length === 32, {
+        message: 'must be 32 random bytes, base64url-encoded (see .env.example)',
+      }),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.NODE_ENV !== 'production') return;
