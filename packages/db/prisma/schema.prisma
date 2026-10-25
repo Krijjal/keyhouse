@@ -29,10 +29,47 @@ model User {
   // would only exist for real accounts and leak which emails are registered.
   // Lockout lives in Redis, keyed by normalized email, for existing and unknown emails alike.
 
-  sessions    Session[]
-  emailTokens EmailToken[]
+  sessions      Session[]
+  emailTokens   EmailToken[]
+  mfa           UserMfa?
+  recoveryCodes MfaRecoveryCode[]
 
   @@map("users")
+}
+
+// MFA with an authenticator app (TOTP). One row per user who has ever set it up.
+model UserMfa {
+  userId       String    @id @map("user_id") @db.Uuid
+  // The TOTP secret, sealed with AES-256-GCM (security/secret-box.ts): the one documented
+  // exception to rule 2, because codes can't be computed from a hash. Null when MFA is off.
+  secretSealed String?   @map("secret_sealed")
+  // Null while setting up (QR code shown, no code confirmed yet) and after turning MFA off.
+  enabledAt    DateTime? @map("enabled_at") @db.Timestamptz(3)
+  // The last 30-second step accepted. Codes from this step or older are refused (replay).
+  lastUsedStep Int?      @map("last_used_step")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_mfa")
+}
+
+// One-time backup codes for a lost phone. Only SHA-256 hashes are stored (rule 2).
+model MfaRecoveryCode {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @unique @map("code_hash") @db.Char(64)
+  // Single use: set atomically when the code is used.
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  // Set when codes are replaced or MFA is turned off. The row stays, the code stops working.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_recovery_codes")
 }
 
 model Session {
